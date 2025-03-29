@@ -1,0 +1,31 @@
+{
+  "name": "product-price-scraper-api",
+  "version": "1.0.0",
+  "description": "API to scrape product prices from Amazon and Flipkart",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [
+    "scraper",
+    "puppeteer",
+    "api",
+    "amazon",
+    "flipkart"
+  ],
+  "author": "Urcodingbuddy",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "puppeteer": "^24.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
