@@ -1,8 +1,4 @@
 import puppeteer from 'puppeteer';
-import path from 'path';
-
-const isProd = process.env.NODE_ENV === 'production';
-const CHROME_PATH = isProd ? '/tmp/puppeteer/chrome/linux-*/chrome-linux*/chrome' : undefined;
 
 export async function scrapeProduct(searchParams) {
     if (!searchParams) return;
@@ -30,39 +26,23 @@ export async function scrapeProduct(searchParams) {
 
 }
 
-async function launchBrowser() {
-    try {
-        // Find the Chrome executable path if in production
-        let executablePath = CHROME_PATH;
-        
-        if (isProd) {
-            console.log("Using Chrome at path:", executablePath);
-        }
-        
-        return await puppeteer.launch({
-            headless: true,
-            args: [
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-accelerated-2d-canvas",
-                "--no-first-run",
-                "--no-zygote",
-                "--disable-gpu"
-            ],
-            executablePath: executablePath,
-        });
-    } catch (error) {
-        console.error("Error launching browser:", error);
-        throw error;
-    }
-}
-
 async function scrapeAmazon(searchParams) {
 
     let browser;
     try {
-        browser = await launchBrowser();
+        browser = await puppeteer.launch(
+            {
+                headless: true,
+                args: [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-accelerated-2d-canvas",
+                    "--no-first-run",
+                    "--no-zygote",
+                    "--disable-gpu"
+                ]
+            });
         const page = await browser.newPage();
         page.setDefaultNavigationTimeout(10000);
         await page.setRequestInterception(true);
@@ -129,7 +109,18 @@ async function scrapeFlipkart(searchParams) {
 
     let browser;
     try {
-        browser = await launchBrowser();
+        browser = await puppeteer.launch({
+            headless: true,
+            args: [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-accelerated-2d-canvas",
+                "--no-first-run",
+                "--no-zygote",
+                "--disable-gpu"
+            ]
+        });
         const page = await browser.newPage();
         page.setDefaultNavigationTimeout(10000);
         await page.setRequestInterception(true);

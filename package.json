@@ -1,32 +1,33 @@
 {
-  "name": "product-price-scraper-api",
-  "version": "1.0.0",
-  "description": "API to scrape product prices from Amazon and Flipkart",
-  "main": "index.js",
-  "type": "module",
-  "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js",
-    "build": "npm install && npx puppeteer browsers install chrome@stable --path /tmp/puppeteer"
-  },
-  "keywords": [
-    "scraper",
-    "puppeteer",
-    "api",
-    "amazon",
-    "flipkart"
-  ],
-  "author": "Urcodingbuddy",
-  "license": "ISC",
-  "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^4.21.2",
-    "puppeteer": "^22.8.2"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
-  },
-  "engines": {
-    "node": ">=16.0.0"
-  }
+    "name": "product-price-scraper-api",
+    "version": "1.0.0",
+    "description": "API to scrape product prices from Amazon and Flipkart",
+    "main": "index.js",
+    "type": "module",
+    "scripts": {
+        "start": "node index.js",
+        "dev": "nodemon index.js"
+    },
+    "keywords": [
+        "scraper",
+        "puppeteer",
+        "api",
+        "amazon",
+        "flipkart"
+    ],
+    "author": "Urcodingbuddy",
+    "license": "ISC",
+    "dependencies": {
+        "@sparticuz/chromium": "^133.0.0",
+        "cors": "^2.8.5",
+        "express": "^4.21.2",
+        "puppeteer": "^24.3.1",
+        "puppeteer-core": "^24.3.1"
+    },
+    "devDependencies": {
+        "nodemon": "^3.0.1"
+    },
+    "engines": {
+        "node": ">=16.0.0"
+    }
 }
