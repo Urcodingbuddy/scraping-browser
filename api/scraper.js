@@ -3,16 +3,30 @@ import dotenv from "dotenv";
 import chromium from '@sparticuz/chromium';
 chromium.setGraphicsMode = false;
 dotenv.config();
+
+const DEFAULT_NAVIGATION_TIMEOUT = 30000;
+const MAX_RETRIES = 2;
+
 export async function scrapeProduct(searchParams) {
     if (!searchParams) return;
     console.log("Scraping Amazon and Flipkart for:", searchParams);
     try {
-        const [amazonData, flipkartData] = await Promise.all([
-            scrapeAmazon(searchParams),
-            scrapeFlipkart(searchParams)
+        const amazonDataPromise = retryOpration(()=>scrapeAmazon(searchParams), MAX_RETRIES)
+        const flipkartDataPromise = retryOpration(()=>scrapeFlipkart(searchParams), MAX_RETRIES)
+        
+        const [amazonData, flipkartData] = await Promise.allSettled([
+            amazonDataPromise,
+            flipkartDataPromise
         ]);
-        console.log(amazonData, flipkartData)
+
+        const amazonResults = amazonData.status === 'fulfilled' ? amazonData.value : [];
+        const flipkartResults = flipkartData.status === 'fulfilled' ? flipkartData.value : [];
+        
+        console.log("Amazon results count:", amazonResults.length);
+        console.log("Flipkart results count:", flipkartResults.length);
         console.log("Scraping End");
+        console.log(amazonData, flipkartData)
+
         return {
             amazon: amazonData || [],
             flipkart: flipkartData || [],
@@ -23,9 +37,25 @@ export async function scrapeProduct(searchParams) {
         return {
             amazon: [],
             flipkart: [],
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            error: error.message
         };
     }
+}
+
+async function retryOpration(operation, maxRetries) {
+    let lastError;
+    for(let attempt = 0; attempt < maxRetries; attempt++){
+        try{
+            return await operation();
+        }catch(error){
+            console.log(`Attempt ${attempt+1} failed with error: ${error.message}`);
+            lastError = error;
+            await new Promise(resolve=> setTimeout(resolve, 1000 * Math.pow(2, attempt)))
+        }
+    }
+    console.log(`All ${maxRetries} attempts failed`);
+    throw lastError;
 }
 
 async function launchBrowser() {
@@ -37,12 +67,17 @@ async function launchBrowser() {
             "--disable-accelerated-2d-canvas",
             "--no-first-run",
             "--no-zygote",
-            "--disable-gpu"],
+            "--disable-gpu",
+            "--disable-web-security",
+            "--disable-features=IsolateOrigins,site-per-process",
+            "--blink-settings=imagesEnabled=false"  
+        ],
         executablePath: process.env.CHROME_EXECUTABLE_PATH || await chromium.executablePath(),
         headless: chromium.headless,
-        defaultViewport: chromium.defaultViewport
+        defaultViewport: chromium.defaultViewport,
     });
 }
+// return browser;
 
 
 async function scrapeAmazon(searchParams) {
@@ -50,24 +85,52 @@ async function scrapeAmazon(searchParams) {
     try {
         browser = await launchBrowser();
         const page = await browser.newPage();
-        page.setDefaultNavigationTimeout(6000);
-        await page.setRequestInterception(true);
+
+        page.setDefaultNavigationTimeout(DEFAULT_NAVIGATION_TIMEOUT);
+
+        await Promise.all([
+            page.setRequestInterception(true),
+            page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'),
+            page.setCacheEnabled(true)
+        ])
+
         page.on("request", (req) => {
-            if (["image", "stylesheet", "font", "media", "other"].includes(req.resourceType())) {
+            if (["stylesheet", "font", "other", "images"].includes(req.resourceType())) {
                 req.abort();
             } else {
                 req.continue();
             }
         });
         const BASE_URL = "https://www.amazon.in/s?k=";
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
         const amazonUrl = `${BASE_URL}${encodeURIComponent(searchParams.trim().replace(/\s+/g, '+'))}`;
         console.log("Navigating to Amazon...");
-        await page.goto(amazonUrl, { waitUntil: "domcontentloaded" });
+        await page.goto(amazonUrl, { 
+            waitUntil:[ "domcontentloaded", "networkidle2"],
+            timeout: DEFAULT_NAVIGATION_TIMEOUT
+        });
+
+
+        const captchaDetected = await page.evaluate(() => {
+            return document.body.textContent.includes("captcha") || 
+                   document.body.textContent.includes("robot") ||
+                   document.title.includes("Robot");
+        });
+        
+        if (captchaDetected) {
+            console.log("Amazon bot detection triggered - attempting bypass");
+            await page.reload({ waitUntil: "networkidle2" });
+        }
+
+
         try {
             await page.waitForSelector(".s-card-container", { timeout: 30000 });
+            console.log("Amazon product containers loaded successfully");
         } catch (error) {
             console.log("Timeout or selector not found on Amazon, returning empty results");
+            if (process.env.DEBUG) {
+                await page.screenshot({ path: 'amazon-error.png' });
+                console.log("Debug screenshot saved as amazon-error.png");
+            }
             return [];
         }
         const amazonData = await page.evaluate(() => {
@@ -98,8 +161,9 @@ async function scrapeAmazon(searchParams) {
                     };
                 })
                 .filter(item => item.name !== "N/A" && item.name.length > 0)
-                .slice(0, 10); // Limit to 10 results for faster response
+                .slice(0, 10);
         });
+        console.log(`Found ${amazonData.length} products on Amazon`);
         await page.close();
         return amazonData;
     } catch (error) {
@@ -115,34 +179,56 @@ async function scrapeFlipkart(searchParams) {
     try {
         browser = await launchBrowser();
         const page = await browser.newPage();
-        await page.setRequestInterception(true);
+        page.setDefaultNavigationTimeout(DEFAULT_NAVIGATION_TIMEOUT);
+        await Promise.all([
+            page.setRequestInterception(true),
+            page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"),
+            page.setCacheEnabled(true)
+        ]);
+        
         page.on("request", (req) => {
-            if (["stylesheet", "font", "other"].includes(req.resourceType())) {
+            if (["stylesheet", "font", "other", "images"].includes(req.resourceType())) {
                 req.abort();
             } else {
                 req.continue();
             }
         });
         const BASE_URL = "https://www.flipkart.com/search?q=";
-        await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
         const flipkartUrl = `${BASE_URL}${encodeURIComponent(searchParams.trim().replace(/\s+/g, '+'))}`;
         console.log("Navigating to Flipkart...");
-        await page.goto(flipkartUrl, { waitUntil: "domcontentloaded" });
+        await page.goto(flipkartUrl, { 
+            waitUntil: ["domcontentloaded", "networkidle2"],
+            timeout: DEFAULT_NAVIGATION_TIMEOUT
+        });
         const isRushPage = await page.evaluate(() => {
             return !!document.querySelector("#retry_btn"); // Retry button exists on "rush page"
         });
 
         if (isRushPage) {
-            console.log("Rush page detected! Waiting for 3 seconds...");
-            await new Promise(resolve => setTimeout(resolve, 3000)); // Wait manually
-            console.log("Clicking 'Try Now' button...");
-            await page.locator('button').click();
+            console.log("Rush page detected! Waiting and attempting to bypass...");
+            try {
+                console.log("Clicking 'Try Now' button...");
+                await page.locator('button').click();
+                console.log("Clicked retry button");
+                    await page.waitForNavigation({ 
+                        waitUntil: "networkidle2", 
+                        timeout: DEFAULT_NAVIGATION_TIMEOUT 
+                    });
+                    console.log("Navigated past rush page");
+            } catch (error) {
+                console.log("Failed to click retry button:", error.message);
+                await page.reload({ waitUntil: "networkidle2" });
+            }
             await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 30000 });
             console.log("Navigated to the actual product page.");
         }
         try {
             await page.waitForSelector("._75nlfW", { timeout: 5000 });
         } catch (error) {
+            if (process.env.DEBUG) {
+                await page.screenshot({ path: 'flipkart-error.png' });
+                console.log("Debug screenshot saved as flipkart-error.png");
+            }
             console.log("Timeout or selector not found on Flipkart, returning empty results");
             return [];
         }
@@ -155,12 +241,15 @@ async function scrapeFlipkart(searchParams) {
             const detailsSelector = ".J+igdf";
             const imageSelector = ".DByuf4";
 
+            const products = Array.from(document.querySelectorAll(productSelector));
+            console.log(`Found ${products.length} products with selector ${productSelector}`);
+
             return Array.from(document.querySelectorAll(productSelector))
                 .map(el => {
-                    const nameText = el.querySelector(nameSelector)?.textContent?.trim().concat("|") || "";
+                    const nameText = el.querySelector(nameSelector)?.textContent?.trim() || "";
                     const detailsText = el.querySelector(detailsSelector)?.textContent?.trim() || "";
                     return {
-                        name: nameText + detailsText || "N/A",
+                        name: nameText || "N/A",
                         price: el.querySelector(priceSelector)?.textContent?.trim() || "N/A",
                         originalPrice: el.querySelector(orignalPriceSelector)?.textContent?.trim() || "N/A",
                         image: el.querySelector(imageSelector)?.getAttribute("src") || "",
@@ -170,6 +259,7 @@ async function scrapeFlipkart(searchParams) {
                 .filter(item => item.name !== "N/A" && item.name.length > 0)
                 .slice(0, 10); // Limit to 10 results for faster response
         });
+        console.log(`Found ${flipkartData.length} products on Flipkart`);
         await page.close();
         return flipkartData;
     } catch (error) {
